@@ -1,6 +1,6 @@
 # wpm
 
-a terminal typing test written in zig.
+a terminal typing test written in zig. only tested on macos. 
 
 ## build
 

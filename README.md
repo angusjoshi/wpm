@@ -23,5 +23,6 @@ zig build run -- 25
 ## controls
 
 - type the words shown on screen
-- press `q` to quit
+- press `ESC` to quit
+- press `\`` to toggle between hiscores and gameplay
 - scores are saved to `~/.wpm/scores.dat`

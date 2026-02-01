@@ -33,14 +33,15 @@ pub fn main() !void {
     var term = try Terminal.init();
     defer term.deinit();
 
-    const scores_path = blk: {
+    var path_buf: [256]u8 = undefined;
+    const scores_path: [:0]const u8 = blk: {
         const home = std.posix.getenv("HOME") orelse break :blk "scores.dat";
-        const dir_path = std.fmt.allocPrint(allocator, "{s}/.wpm", .{home}) catch break :blk "scores.dat";
-        std.fs.cwd().makeDir(dir_path) catch |err| switch (err) {
+        const dir_path = std.fmt.bufPrintZ(&path_buf, "{s}/.wpm", .{home}) catch break :blk "scores.dat";
+        std.fs.cwd().makeDirZ(dir_path) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => break :blk "scores.dat",
         };
-        break :blk std.fmt.allocPrint(allocator, "{s}/.wpm/scores.dat", .{home}) catch "scores.dat";
+        break :blk std.fmt.bufPrintZ(&path_buf, "{s}/.wpm/scores.dat", .{home}) catch "scores.dat";
     };
 
     var scores = try ScoreStore.init(allocator, scores_path);

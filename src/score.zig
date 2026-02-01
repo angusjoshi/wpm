@@ -1,4 +1,5 @@
 const std = @import("std");
+const posix = std.posix;
 const Allocator = std.mem.Allocator;
 
 pub const Record = packed struct {
@@ -7,39 +8,47 @@ pub const Record = packed struct {
     word_count: u16,
     correct_chars: u32,
     total_chars: u32,
+
+    const byte_size = @divExact(@bitSizeOf(Record), 8);
 };
 
 allocator: Allocator,
-file: ?std.fs.File,
+fd: ?posix.fd_t,
 records: std.ArrayList(Record),
 
 const Self = @This();
 
-pub fn init(allocator: Allocator, path: []const u8) !Self {
+fn readAll(fd: posix.fd_t, buf: []u8) !void {
+    var total: usize = 0;
+    while (total < buf.len) {
+        const n = try posix.read(fd, buf[total..]);
+        if (n == 0) return error.EndOfStream;
+        total += n;
+    }
+}
+
+pub fn init(allocator: Allocator, path: [:0]const u8) !Self {
     var self = Self{
         .allocator = allocator,
-        .file = null,
+        .fd = null,
         .records = .empty,
     };
 
-    self.file = std.fs.cwd().openFile(path, .{ .mode = .read_write }) catch |err| switch (err) {
-        error.FileNotFound => std.fs.cwd().createFile(path, .{ .read = true }) catch null,
-        else => null,
-    };
+    self.fd = posix.openat(posix.AT.FDCWD, path, .{
+        .ACCMODE = .RDWR,
+        .APPEND = true,
+        .CREAT = true,
+    }, 0o644) catch null;
 
-    const record_size = @divExact(@bitSizeOf(Record), 8);
-    if (self.file) |file| {
-        const stat = try file.stat();
-        const record_count = stat.size / record_size;
+    if (self.fd) |fd| {
+        const stat = try posix.fstat(fd);
+        const record_count = @as(usize, @intCast(stat.size)) / Record.byte_size;
         try self.records.ensureTotalCapacity(allocator, record_count);
 
-        const divd_record_size = @divExact(@bitSizeOf(Record), 8);
         for (0..record_count) |_| {
-            var bytes: [divd_record_size]u8 = undefined;
-            const n = file.read(&bytes) catch break;
-            if (n != divd_record_size) break;
-            const record: Record = @bitCast(bytes);
-            try self.records.append(allocator, record);
+            var bytes: [Record.byte_size]u8 = undefined;
+            readAll(fd, &bytes) catch break;
+            try self.records.append(allocator, @bitCast(bytes));
         }
     }
 
@@ -48,16 +57,15 @@ pub fn init(allocator: Allocator, path: []const u8) !Self {
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.file) |file| file.close();
+    if (self.fd) |fd| posix.close(fd);
     self.records.deinit(self.allocator);
 }
 
 pub fn add(self: *Self, record: Record) !void {
-    const record_size = @divExact(@bitSizeOf(Record), 8);
-    if (self.file) |file| {
-        const bytes: [record_size]u8 = @bitCast(record);
-        try file.seekFromEnd(0);
-        try file.writeAll(&bytes);
+    if (self.fd) |fd| {
+        const bytes: [Record.byte_size]u8 = @bitCast(record);
+        _ = try posix.write(fd, &bytes);
+        posix.fdatasync(fd) catch {};
     }
     try self.records.append(self.allocator, record);
     self.sortByWpm();

@@ -1,0 +1,2 @@
+there is a bug where if a word aligns perfectly to the end of the line,
+	there is no space put between it and the next word.
